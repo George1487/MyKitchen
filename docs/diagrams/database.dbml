@@ -1,0 +1,42 @@
+ Table restaurants {
+  id integer [pk, increment]
+  name text [not null]
+  phone text [not null]
+  address text [not null]
+  opening_time time [not null]
+  closing_time time [not null]
+  is_accepting_orders boolean [not null, default: true]
+}
+
+Table orders {
+  id integer [pk, increment]
+  client_id integer [not null]
+  restaurant_id integer [not null]
+  total_price integer [not null]
+  status text [not null]
+  address text [not null]
+  created_at timestamptz [not null, default: `now()`]
+}
+
+Table menu_items {
+  id integer [pk, increment]
+  price integer [not null]
+  available_quantity integer [not null, default: 0]
+  restaurant_id integer [not null]
+  name text [not null]
+  description text [not null]
+  is_available boolean [not null, default: true]
+}
+
+Table order_items {
+  id integer [pk, increment]
+  order_id integer [not null]
+  menu_item_id integer [not null]
+  price integer [not null]
+  quantity integer [not null]
+}
+
+Ref: restaurants.id < orders.restaurant_id
+Ref: restaurants.id < menu_items.restaurant_id [delete: cascade]
+Ref: orders.id < order_items.order_id [delete: cascade]
+Ref: menu_items.id < order_items.menu_item_id

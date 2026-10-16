@@ -1,0 +1,690 @@
+openapi: 3.0.3
+info:
+  title: MyKitchen Partner API
+  version: 1.0.0
+  description: |
+    API MVP для сервиса ресторана-партнёра: регистрация ресторана,
+    управление меню и обработка заказов.
+    Все маршруты требуют заголовок `X-Partner-API-Key`.
+servers:
+  - url: http://localhost:8080
+    description: Локальный запуск через Docker Compose
+tags:
+  - name: Partner restaurants
+    description: Управление рестораном и приёмом заказов
+  - name: Partner menu
+    description: Управление позициями меню
+  - name: Partner orders
+    description: Получение и обработка заказов ресторана
+security:
+  - PartnerApiKey: []
+paths:
+  /partner/restaurants:
+    post:
+      tags: [Partner restaurants]
+      summary: Зарегистрировать ресторан
+      operationId: registerPartnerRestaurant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRestaurantRequest'
+            example:
+              name: Demo Kitchen
+              phone: '+79990000000'
+              address: Москва, улица Пример, 10
+              opening_time: '09:00'
+              closing_time: '23:00'
+      responses:
+        '201':
+          description: Ресторан зарегистрирован и сразу принимает заказы
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Restaurant'
+              example:
+                id: 1
+                name: Demo Kitchen
+                phone: '+79990000000'
+                address: Москва, улица Пример, 10
+                opening_time: '09:00'
+                closing_time: '23:00'
+                is_accepting_orders: true
+        '400':
+          $ref: '#/components/responses/InvalidRestaurantRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/RestaurantRegistrationError'
+
+  /partner/restaurants/{restaurant_id}:
+    delete:
+      tags: [Partner restaurants]
+      summary: Удалить ресторан
+      operationId: deletePartnerRestaurant
+      parameters:
+        - $ref: '#/components/parameters/RestaurantId'
+      responses:
+        '204':
+          description: Ресторан удалён
+        '400':
+          $ref: '#/components/responses/InvalidRestaurantId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/RestaurantNotFound'
+        '409':
+          description: Ресторан нельзя удалить, например из-за связанных данных
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: не удалось удалить ресторан
+
+  /partner/restaurants/{restaurant_id}/accepting-orders:
+    patch:
+      tags: [Partner restaurants]
+      summary: Изменить приём новых заказов
+      operationId: updatePartnerAcceptingOrders
+      parameters:
+        - $ref: '#/components/parameters/RestaurantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAcceptingOrdersRequest'
+            example:
+              is_accepting_orders: false
+      responses:
+        '204':
+          description: Настройка приёма заказов обновлена
+        '400':
+          description: Некорректен идентификатор ресторана или тело запроса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidId:
+                  value:
+                    error: некорректный идентификатор ресторана
+                invalidBody:
+                  value:
+                    error: некорректные данные для изменения приёма заказов
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/RestaurantNotFound'
+        '500':
+          description: Не удалось изменить приём заказов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: не удалось изменить приём заказов
+
+  /partner/restaurants/{restaurant_id}/menu-items:
+    post:
+      tags: [Partner menu]
+      summary: Добавить позицию в меню
+      operationId: createPartnerMenuItem
+      parameters:
+        - $ref: '#/components/parameters/RestaurantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMenuItemRequest'
+            example:
+              name: Пицца Маргарита
+              description: Томатный соус и моцарелла
+              price: 500
+              is_available: true
+              available_quantity: 10
+      responses:
+        '201':
+          description: Позиция создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerMenuItem'
+        '400':
+          description: Некорректен идентификатор ресторана или данные позиции
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidId:
+                  value:
+                    error: некорректный идентификатор ресторана
+                invalidBody:
+                  value:
+                    error: некорректные данные позиции меню
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/RestaurantNotFound'
+        '500':
+          description: Не удалось создать позицию меню
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: не удалось создать позицию меню
+
+  /partner/restaurants/{restaurant_id}/menu-items/{menu_item_id}:
+    patch:
+      tags: [Partner menu]
+      summary: Изменить позицию меню
+      description: Передайте хотя бы одно поле. Неуказанные поля сохраняют прежние значения.
+      operationId: updatePartnerMenuItem
+      parameters:
+        - $ref: '#/components/parameters/RestaurantId'
+        - $ref: '#/components/parameters/MenuItemId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMenuItemRequest'
+            example:
+              available_quantity: 5
+              is_available: true
+      responses:
+        '200':
+          description: Позиция обновлена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerMenuItem'
+        '400':
+          description: Некорректен идентификатор или тело запроса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidRestaurantId:
+                  value:
+                    error: некорректный идентификатор ресторана
+                invalidMenuItemId:
+                  value:
+                    error: некорректный идентификатор позиции меню
+                invalidBody:
+                  value:
+                    error: некорректные данные позиции меню
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Позиция не существует или не принадлежит ресторану из URL
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: позиция меню не найдена
+        '500':
+          description: Не удалось обновить позицию меню
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: не удалось обновить позицию меню
+    delete:
+      tags: [Partner menu]
+      summary: Удалить позицию меню
+      operationId: deletePartnerMenuItem
+      parameters:
+        - $ref: '#/components/parameters/RestaurantId'
+        - $ref: '#/components/parameters/MenuItemId'
+      responses:
+        '204':
+          description: Позиция удалена
+        '400':
+          description: Некорректен идентификатор ресторана или позиции
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Позиция не существует или не принадлежит ресторану из URL
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: позиция меню не найдена
+        '500':
+          description: Не удалось удалить позицию меню
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: не удалось удалить позицию меню
+
+  /partner/restaurants/{restaurant_id}/orders:
+    get:
+      tags: [Partner orders]
+      summary: Получить заказы ресторана
+      description: Возвращает пустой массив, если заказов нет. Ресторан с корректным, но отсутствующим идентификатором также вернёт пустой массив.
+      operationId: getPartnerRestaurantOrders
+      parameters:
+        - $ref: '#/components/parameters/RestaurantId'
+      responses:
+        '200':
+          description: Заказы ресторана, от новых к более старым
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Order'
+        '400':
+          $ref: '#/components/responses/InvalidRestaurantId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /partner/restaurants/{restaurant_id}/orders/{order_id}/status:
+    patch:
+      tags: [Partner orders]
+      summary: Изменить статус заказа
+      description: |
+        Допустимые переходы: `new → accepted`, `new → cancelled`,
+        `accepted → delivered`, `accepted → cancelled`.
+      operationId: changePartnerOrderStatus
+      parameters:
+        - $ref: '#/components/parameters/RestaurantId'
+        - $ref: '#/components/parameters/OrderId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeOrderStatusRequest'
+            example:
+              status: accepted
+      responses:
+        '204':
+          description: Статус заказа изменён
+        '400':
+          description: Некорректен идентификатор ресторана, заказа или JSON
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidRestaurantId:
+                  value:
+                    error: некорректный идентификатор ресторана
+                invalidOrderId:
+                  value:
+                    error: некорректный идентификатор заказа
+                invalidBody:
+                  value:
+                    error: некорректные данные статуса заказа
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Заказ не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: заказ не найден
+        '409':
+          description: |
+            Статус недопустим, переход статуса запрещён, заказ относится к другому
+            ресторану или его статус уже был изменён конкурентным запросом.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: не удалось изменить статус заказа
+
+components:
+  securitySchemes:
+    PartnerApiKey:
+      type: apiKey
+      in: header
+      name: X-Partner-API-Key
+      description: Общий ключ партнёрского API из переменной окружения PARTNER_API_KEY.
+
+  parameters:
+    RestaurantId:
+      name: restaurant_id
+      in: path
+      required: true
+      description: Положительный идентификатор ресторана
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    MenuItemId:
+      name: menu_item_id
+      in: path
+      required: true
+      description: Положительный идентификатор позиции меню
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    OrderId:
+      name: order_id
+      in: path
+      required: true
+      description: Положительный идентификатор заказа
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+
+  responses:
+    Unauthorized:
+      description: API-ключ отсутствует или не совпадает с PARTNER_API_KEY
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: некорректный ключ API партнёра
+    InvalidRestaurantId:
+      description: Идентификатор ресторана некорректен
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: некорректный идентификатор ресторана
+    RestaurantNotFound:
+      description: Ресторан не найден
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: ресторан не найден
+    InvalidRestaurantRequest:
+      description: Данные ресторана невалидны
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: некорректные данные ресторана
+    RestaurantRegistrationError:
+      description: Не удалось зарегистрировать ресторан
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: не удалось зарегистрировать ресторан
+    InternalServerError:
+      description: Внутренняя ошибка сервера
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: внутренняя ошибка сервера
+
+  schemas:
+    RegisterRestaurantRequest:
+      type: object
+      required:
+        - name
+        - phone
+        - address
+        - opening_time
+        - closing_time
+      properties:
+        name:
+          type: string
+          minLength: 1
+          example: Demo Kitchen
+        phone:
+          type: string
+          minLength: 1
+          example: '+79990000000'
+        address:
+          type: string
+          minLength: 1
+          example: Москва, улица Пример, 10
+        opening_time:
+          type: string
+          minLength: 1
+          example: '09:00'
+        closing_time:
+          type: string
+          minLength: 1
+          example: '23:00'
+
+    Restaurant:
+      type: object
+      required:
+        - id
+        - name
+        - address
+        - phone
+        - opening_time
+        - closing_time
+        - is_accepting_orders
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 1
+        name:
+          type: string
+          example: Demo Kitchen
+        address:
+          type: string
+          example: Москва, улица Пример, 10
+        phone:
+          type: string
+          example: '+79990000000'
+        opening_time:
+          type: string
+          example: '09:00'
+        closing_time:
+          type: string
+          example: '23:00'
+        is_accepting_orders:
+          type: boolean
+          example: true
+
+    UpdateAcceptingOrdersRequest:
+      type: object
+      required: [is_accepting_orders]
+      properties:
+        is_accepting_orders:
+          type: boolean
+          description: `true` — принимать новые заказы, `false` — временно остановить приём
+          example: false
+
+    CreateMenuItemRequest:
+      type: object
+      required:
+        - name
+        - description
+      properties:
+        name:
+          type: string
+          minLength: 1
+          example: Пицца Маргарита
+        description:
+          type: string
+          minLength: 1
+          example: Томатный соус и моцарелла
+        price:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+          example: 500
+        is_available:
+          type: boolean
+          default: false
+          example: true
+        available_quantity:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+          example: 10
+
+    UpdateMenuItemRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          example: Большая пицца Маргарита
+        description:
+          type: string
+          minLength: 1
+          example: Томатный соус, моцарелла и базилик
+        price:
+          type: integer
+          format: int64
+          minimum: 0
+          example: 650
+        is_available:
+          type: boolean
+          example: true
+        available_quantity:
+          type: integer
+          format: int64
+          minimum: 0
+          example: 5
+
+    PartnerMenuItem:
+      type: object
+      required:
+        - id
+        - name
+        - description
+        - price
+        - is_available
+        - available_quantity
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 1
+        name:
+          type: string
+          example: Пицца Маргарита
+        description:
+          type: string
+          example: Томатный соус и моцарелла
+        price:
+          type: integer
+          format: int64
+          minimum: 0
+          example: 500
+        is_available:
+          type: boolean
+          example: true
+        available_quantity:
+          type: integer
+          format: int64
+          minimum: 0
+          example: 10
+
+    ChangeOrderStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [accepted, cancelled, delivered]
+          description: Новый статус с учётом разрешённых переходов
+          example: accepted
+
+    Order:
+      type: object
+      required:
+        - id
+        - restaurant_id
+        - address
+        - total_price
+        - status
+        - created_at
+        - items
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 42
+        restaurant_id:
+          type: integer
+          format: int64
+          example: 1
+        address:
+          type: string
+          example: Москва, улица Пример, 10
+        total_price:
+          type: integer
+          format: int64
+          minimum: 0
+          example: 1000
+        status:
+          type: string
+          enum: [new, accepted, cancelled, delivered]
+          example: new
+        created_at:
+          type: string
+          format: date-time
+          example: '2026-08-29T11:50:29Z'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItem'
+
+    OrderItem:
+      type: object
+      required:
+        - menu_item_id
+        - price
+        - quantity
+      properties:
+        menu_item_id:
+          type: integer
+          format: int64
+          example: 1
+        price:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Цена одной позиции на момент оформления заказа
+          example: 500
+        quantity:
+          type: integer
+          format: int64
+          minimum: 1
+          example: 2
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: некорректный ключ API партнёра

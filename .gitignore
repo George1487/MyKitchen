@@ -1,0 +1,23 @@
+# GoLand / IntelliJ IDEA
+.idea/
+
+# Локальные переменные окружения и секреты
+.env
+.env.*
+!.env.example
+!.env.template
+
+# Результаты тестов, покрытия и профилирования
+coverage.out
+coverage.txt
+*.coverprofile
+*.prof
+
+# Локально собранные Go-бинарники
+*.exe
+*.test
+bin/
+
+# Временные файлы ОС
+.DS_Store
+Thumbs.db

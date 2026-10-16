@@ -1,0 +1,11 @@
+.git
+.idea
+.env
+.env.*
+bin
+*.exe
+*.test
+coverage.out
+coverage.txt
+*.coverprofile
+*.prof

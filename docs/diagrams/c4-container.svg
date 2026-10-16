@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="360" viewBox="0 0 840 360" role="img" aria-labelledby="title desc">
+  <title id="title">Контейнеры MyKitchen</title>
+  <desc id="desc">Пользователь обращается к приложению по HTTP; демонстрационный ресторан обращается к приложению по gRPC; приложение работает с PostgreSQL по SQL.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M 0 0 L 10 4 L 0 8 Z" fill="#334155"/>
+    </marker>
+  </defs>
+  <rect width="840" height="360" fill="#ffffff"/>
+  <g fill="#f8fafc" stroke="#334155" stroke-width="2">
+    <rect x="35" y="78" width="160" height="100" rx="8"/>
+    <rect x="320" y="70" width="200" height="116" rx="8"/>
+    <rect x="645" y="78" width="160" height="100" rx="8"/>
+    <rect x="335" y="252" width="170" height="72" rx="8"/>
+  </g>
+  <g font-family="Arial, sans-serif" font-size="17" fill="#0f172a" text-anchor="middle">
+    <text x="115" y="134">Пользователь</text>
+    <text x="420" y="115">MyKitchen</text>
+    <text x="420" y="140" font-size="14">Go + Gin, HTTP и gRPC</text>
+    <text x="725" y="119">Restaurant Demo</text>
+    <text x="725" y="143" font-size="14">Service (Go)</text>
+    <text x="420" y="295">PostgreSQL</text>
+  </g>
+  <g stroke="#334155" stroke-width="2.5" fill="none" marker-end="url(#arrow)">
+    <path d="M 195 128 H 310"/>
+    <path d="M 645 128 H 530"/>
+    <path d="M 420 186 V 242"/>
+  </g>
+  <g font-family="Arial, sans-serif" fill="#334155" text-anchor="middle">
+    <text x="252" y="116" font-size="14">HTTP</text>
+    <text x="585" y="103" font-size="14">gRPC</text>
+    <text x="585" y="154" font-size="11">x-partner-api-key</text>
+    <text x="446" y="222" font-size="14">SQL</text>
+  </g>
+</svg>
