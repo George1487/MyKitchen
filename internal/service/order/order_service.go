@@ -1,11 +1,14 @@
-package service
+package order
 
 import (
 	"MyKitchen/internal/domain"
 	"MyKitchen/internal/repository"
+	"MyKitchen/internal/service"
+	"MyKitchen/internal/transaction"
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -17,6 +20,7 @@ type OrderService struct {
 	menuItemRepo   repository.MenuItemRepository
 	orderItemRepo  repository.OrderItemRepository
 	restaurantRepo repository.RestaurantRepository
+	txManager      transaction.TxManager
 }
 
 func NewOrderService(
@@ -24,12 +28,14 @@ func NewOrderService(
 	menuItemRepo repository.MenuItemRepository,
 	orderItemRepo repository.OrderItemRepository,
 	restaurantRepo repository.RestaurantRepository,
+	txManager transaction.TxManager,
 ) *OrderService {
 	return &OrderService{
 		orderRepo:      orderRepo,
 		menuItemRepo:   menuItemRepo,
 		orderItemRepo:  orderItemRepo,
 		restaurantRepo: restaurantRepo,
+		txManager:      txManager,
 	}
 }
 
@@ -38,7 +44,7 @@ func (s *OrderService) GetByID(ctx context.Context, id domain.OrderID) (*domain.
 	order, err := s.orderRepo.GetByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("%w: %w", ErrOrderNotFound, err)
+			return nil, fmt.Errorf("%w: %w", service.ErrOrderNotFound, err)
 		}
 
 		return nil, fmt.Errorf("не удалось найти заказ: %w", err)
@@ -72,6 +78,19 @@ func (s *OrderService) GetOrdersByRestaurantID(
 }
 
 func (s *OrderService) AddOrder(ctx context.Context, order domain.Order) (*domain.Order, error) {
+	var created *domain.Order
+	err := s.txManager.Do(ctx, func(txCtx context.Context) error {
+		var err error
+		created, err = s.addOrder(txCtx, order)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return created, err
+}
+
+func (s *OrderService) addOrder(ctx context.Context, order domain.Order) (*domain.Order, error) {
 	order.Address = strings.TrimSpace(order.Address)
 	if order.Address == "" {
 		return nil, fmt.Errorf("адрес доставки не может быть пустым")
@@ -84,10 +103,10 @@ func (s *OrderService) AddOrder(ctx context.Context, order domain.Order) (*domai
 		return nil, fmt.Errorf("заказ должен содержать хотя бы одну позицию")
 	}
 
-	restaurant, err := s.restaurantRepo.GetByID(ctx, order.RestaurantID)
+	restaurant, err := s.restaurantRepo.GetByIDForUpdate(ctx, order.RestaurantID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("%w: %w", ErrRestaurantNotFound, err)
+			return nil, fmt.Errorf("%w: %w", service.ErrRestaurantNotFound, err)
 		}
 
 		return nil, fmt.Errorf("не удалось получить ресторан: %w", err)
@@ -105,12 +124,18 @@ func (s *OrderService) AddOrder(ctx context.Context, order domain.Order) (*domai
 		requestedQuantities[orderItem.MenuItemID] += orderItem.Quantity
 	}
 
+	menuItemIDs := make([]domain.MenuItemID, 0, len(requestedQuantities))
+	for menuItemID := range requestedQuantities {
+		menuItemIDs = append(menuItemIDs, menuItemID)
+	}
+	sort.Slice(menuItemIDs, func(i, j int) bool { return menuItemIDs[i] < menuItemIDs[j] })
 	menuItems := make(map[domain.MenuItemID]*domain.MenuItem, len(requestedQuantities))
-	for menuItemID, requestedQuantity := range requestedQuantities {
-		menuItem, err := s.menuItemRepo.GetByID(ctx, menuItemID)
+	for _, menuItemID := range menuItemIDs {
+		requestedQuantity := requestedQuantities[menuItemID]
+		menuItem, err := s.menuItemRepo.GetByIDForUpdate(ctx, menuItemID)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				return nil, fmt.Errorf("%w: %w", ErrMenuItemNotFound, err)
+				return nil, fmt.Errorf("%w: %w", service.ErrMenuItemNotFound, err)
 			}
 
 			return nil, fmt.Errorf("не удалось получить блюдо %d: %w", menuItemID, err)
@@ -165,17 +190,18 @@ func (s *OrderService) ChangeStatus(ctx context.Context, id domain.OrderID, newS
 	if !isValidOrderStatus(newStatus) {
 		return fmt.Errorf("некорректный статус заказа: %q", newStatus)
 	}
+	return s.txManager.Do(ctx, func(txCtx context.Context) error {
+		order, err := s.orderRepo.GetByIDForUpdate(txCtx, id)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("%w: %w", service.ErrOrderNotFound, err)
+			}
 
-	order, err := s.orderRepo.GetByID(ctx, id)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("%w: %w", ErrOrderNotFound, err)
+			return fmt.Errorf("не удалось найти заказ: %w", err)
 		}
 
-		return fmt.Errorf("не удалось найти заказ: %w", err)
-	}
-
-	return s.changeStatus(ctx, order, newStatus)
+		return s.changeStatus(txCtx, order, newStatus)
+	})
 }
 
 func (s *OrderService) ChangeStatusForRestaurant(
@@ -184,19 +210,24 @@ func (s *OrderService) ChangeStatusForRestaurant(
 	orderID domain.OrderID,
 	newStatus domain.OrderStatus,
 ) error {
-	order, err := s.orderRepo.GetByID(ctx, orderID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("%w: %w", ErrOrderNotFound, err)
+	if !isValidOrderStatus(newStatus) {
+		return fmt.Errorf("некорректный статус заказа: %q", newStatus)
+	}
+	return s.txManager.Do(ctx, func(txCtx context.Context) error {
+		order, err := s.orderRepo.GetByIDForUpdate(txCtx, orderID)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("%w: %w", service.ErrOrderNotFound, err)
+			}
+
+			return fmt.Errorf("не удалось найти заказ: %w", err)
+		}
+		if order.RestaurantID != restaurantID {
+			return fmt.Errorf("заказ %d не принадлежит ресторану %d", orderID, restaurantID)
 		}
 
-		return fmt.Errorf("не удалось найти заказ: %w", err)
-	}
-	if order.RestaurantID != restaurantID {
-		return fmt.Errorf("заказ %d не принадлежит ресторану %d", orderID, restaurantID)
-	}
-
-	return s.changeStatus(ctx, order, newStatus)
+		return s.changeStatus(txCtx, order, newStatus)
+	})
 }
 
 func (s *OrderService) changeStatus(ctx context.Context, order *domain.Order, newStatus domain.OrderStatus) error {

@@ -3,6 +3,7 @@ package sql
 import (
 	"MyKitchen/internal/domain"
 	"MyKitchen/internal/repository"
+	"MyKitchen/internal/transaction"
 	"context"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -19,13 +20,26 @@ func NewRestaurantSqlRepository(db *pgxpool.Pool) *RestaurantSqlRepository {
 }
 
 func (r *RestaurantSqlRepository) GetByID(ctx context.Context, restaurantID domain.RestaurantID) (*domain.Restaurant, error) {
+	return r.getByID(ctx, restaurantID, false)
+}
+
+func (r *RestaurantSqlRepository) GetByIDForUpdate(ctx context.Context, restaurantID domain.RestaurantID) (*domain.Restaurant, error) {
+	if _, err := transaction.Tx(ctx); err != nil {
+		return nil, err
+	}
+	return r.getByID(ctx, restaurantID, true)
+}
+
+func (r *RestaurantSqlRepository) getByID(ctx context.Context, restaurantID domain.RestaurantID, forUpdate bool) (*domain.Restaurant, error) {
 
 	var restaurant domain.Restaurant
-
-	err := r.db.QueryRow(ctx,
-		`SELECT id, name, phone, address, opening_time, closing_time, is_accepting_orders
+	query := `SELECT id, name, phone, address, opening_time, closing_time, is_accepting_orders
 		 FROM restaurants
-		 WHERE id = $1`, restaurantID).Scan(
+		 WHERE id = $1`
+	if forUpdate {
+		query += " FOR UPDATE"
+	}
+	err := transaction.DB(ctx, r.db).QueryRow(ctx, query, restaurantID).Scan(
 		&restaurant.ID,
 		&restaurant.Name,
 		&restaurant.Phone,
@@ -43,11 +57,10 @@ func (r *RestaurantSqlRepository) GetByID(ctx context.Context, restaurantID doma
 
 func (r *RestaurantSqlRepository) AddRestaurant(ctx context.Context, restaurant domain.Restaurant) (domain.RestaurantID, error) {
 
-	tx, err := r.db.Begin(ctx)
+	tx, err := transaction.Tx(ctx)
 	if err != nil {
 		return 0, err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
 
 	err = tx.QueryRow(ctx,
 		`INSERT INTO restaurants
@@ -83,15 +96,11 @@ func (r *RestaurantSqlRepository) AddRestaurant(ctx context.Context, restaurant 
 		}
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return 0, err
-	}
-
 	return restaurant.ID, nil
 }
 
 func (r *RestaurantSqlRepository) DeleteRestaurant(ctx context.Context, restaurantID domain.RestaurantID) (bool, error) {
-	result, err := r.db.Exec(ctx, "DELETE FROM restaurants WHERE id = $1", restaurantID)
+	result, err := transaction.DB(ctx, r.db).Exec(ctx, "DELETE FROM restaurants WHERE id = $1", restaurantID)
 	if err != nil {
 		return false, err
 	}
@@ -104,7 +113,7 @@ func (r *RestaurantSqlRepository) UpdateAcceptingOrders(
 	restaurantID domain.RestaurantID,
 	isAcceptingOrders bool,
 ) (bool, error) {
-	result, err := r.db.Exec(ctx,
+	result, err := transaction.DB(ctx, r.db).Exec(ctx,
 		"UPDATE restaurants SET is_accepting_orders = $1 WHERE id = $2",
 		isAcceptingOrders,
 		restaurantID,
@@ -120,7 +129,7 @@ func (r *RestaurantSqlRepository) GetAll(ctx context.Context) ([]domain.Restaura
 
 	var restaurants []domain.Restaurant
 
-	rows, err := r.db.Query(ctx,
+	rows, err := transaction.DB(ctx, r.db).Query(ctx,
 		`SELECT id, name, phone, address, opening_time, closing_time, is_accepting_orders
 		 FROM restaurants`)
 	if err != nil {

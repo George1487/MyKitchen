@@ -100,6 +100,21 @@ func (mr *MockOrderRepositoryMockRecorder) GetByID(ctx, orderID any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByID", reflect.TypeOf((*MockOrderRepository)(nil).GetByID), ctx, orderID)
 }
 
+// GetByIDForUpdate mocks base method.
+func (m *MockOrderRepository) GetByIDForUpdate(ctx context.Context, orderID domain.OrderID) (*domain.Order, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetByIDForUpdate", ctx, orderID)
+	ret0, _ := ret[0].(*domain.Order)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetByIDForUpdate indicates an expected call of GetByIDForUpdate.
+func (mr *MockOrderRepositoryMockRecorder) GetByIDForUpdate(ctx, orderID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByIDForUpdate", reflect.TypeOf((*MockOrderRepository)(nil).GetByIDForUpdate), ctx, orderID)
+}
+
 // GetOrdersByRestaurantID mocks base method.
 func (m *MockOrderRepository) GetOrdersByRestaurantID(ctx context.Context, restaurantID domain.RestaurantID) ([]domain.Order, error) {
 	m.ctrl.T.Helper()

@@ -1,8 +1,10 @@
-package service
+package restaurant
 
 import (
 	"MyKitchen/internal/domain"
 	"MyKitchen/internal/repository"
+	"MyKitchen/internal/service"
+	"MyKitchen/internal/transaction"
 	"context"
 	"errors"
 	"fmt"
@@ -12,11 +14,12 @@ import (
 
 type RestaurantService struct {
 	restaurantRepo repository.RestaurantRepository
+	txManager      transaction.TxManager
 }
 
-func NewRestaurantService(restaurantRepo repository.RestaurantRepository) *RestaurantService {
+func NewRestaurantService(restaurantRepo repository.RestaurantRepository, txManager transaction.TxManager) *RestaurantService {
 
-	return &RestaurantService{restaurantRepo: restaurantRepo}
+	return &RestaurantService{restaurantRepo: restaurantRepo, txManager: txManager}
 }
 
 func (s *RestaurantService) GetRestaurants(ctx context.Context) ([]domain.Restaurant, error) {
@@ -36,7 +39,7 @@ func (s *RestaurantService) GetRestaurantByID(ctx context.Context, id domain.Res
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("%w: %w", ErrRestaurantNotFound, err)
+			return nil, fmt.Errorf("%w: %w", service.ErrRestaurantNotFound, err)
 		}
 
 		return nil, fmt.Errorf("не удалось получить ресторан: %w", err)
@@ -45,7 +48,12 @@ func (s *RestaurantService) GetRestaurantByID(ctx context.Context, id domain.Res
 }
 
 func (s *RestaurantService) RegisterRestaurant(ctx context.Context, restaurant domain.Restaurant) (*domain.Restaurant, error) {
-	restaurantID, err := s.restaurantRepo.AddRestaurant(ctx, restaurant)
+	var restaurantID domain.RestaurantID
+	err := s.txManager.Do(ctx, func(txCtx context.Context) error {
+		var err error
+		restaurantID, err = s.restaurantRepo.AddRestaurant(txCtx, restaurant)
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("не удалось добавить ресторан: %w", err)
 	}

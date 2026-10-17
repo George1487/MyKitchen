@@ -3,6 +3,7 @@ package sql
 import (
 	"MyKitchen/internal/domain"
 	"MyKitchen/internal/repository"
+	"MyKitchen/internal/transaction"
 	"context"
 	"errors"
 	"fmt"
@@ -24,13 +25,26 @@ func NewOrderSqlRepository(db *pgxpool.Pool) *OrderSqlRepository {
 }
 
 func (r *OrderSqlRepository) GetByID(ctx context.Context, orderID domain.OrderID) (*domain.Order, error) {
+	return r.getByID(ctx, orderID, false)
+}
+
+func (r *OrderSqlRepository) GetByIDForUpdate(ctx context.Context, orderID domain.OrderID) (*domain.Order, error) {
+	if _, err := transaction.Tx(ctx); err != nil {
+		return nil, err
+	}
+	return r.getByID(ctx, orderID, true)
+}
+
+func (r *OrderSqlRepository) getByID(ctx context.Context, orderID domain.OrderID, forUpdate bool) (*domain.Order, error) {
 
 	var order domain.Order
-
-	err := r.db.QueryRow(ctx,
-		`SELECT id, client_id, restaurant_id, total_price, status, address, created_at
+	query := `SELECT id, client_id, restaurant_id, total_price, status, address, created_at
 		 FROM orders
-		 WHERE id = $1`, orderID).Scan(
+		 WHERE id = $1`
+	if forUpdate {
+		query += " FOR UPDATE"
+	}
+	err := transaction.DB(ctx, r.db).QueryRow(ctx, query, orderID).Scan(
 		&order.ID,
 		&order.ClientID,
 		&order.RestaurantID,
@@ -50,7 +64,7 @@ func (r *OrderSqlRepository) GetOrdersByRestaurantID(
 	ctx context.Context,
 	restaurantID domain.RestaurantID,
 ) ([]domain.Order, error) {
-	rows, err := r.db.Query(ctx,
+	rows, err := transaction.DB(ctx, r.db).Query(ctx,
 		"SELECT * FROM orders WHERE restaurant_id = $1 ORDER BY created_at DESC", restaurantID)
 	if err != nil {
 		return nil, err
@@ -84,11 +98,10 @@ func (r *OrderSqlRepository) GetOrdersByRestaurantID(
 
 func (r *OrderSqlRepository) CreateOrder(ctx context.Context, order domain.Order) (domain.OrderID, error) {
 
-	tx, err := r.db.Begin(ctx)
+	tx, err := transaction.Tx(ctx)
 	if err != nil {
 		return 0, err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
 
 	requestedQuantities := make(map[domain.MenuItemID]int64)
 	for _, orderItem := range order.OrderItems {
@@ -196,10 +209,6 @@ func (r *OrderSqlRepository) CreateOrder(ctx context.Context, order domain.Order
 		}
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return 0, err
-	}
-
 	return orderID, nil
 }
 
@@ -208,11 +217,10 @@ func (r *OrderSqlRepository) CancelOrder(
 	orderID domain.OrderID,
 	fromStatus domain.OrderStatus,
 ) (bool, error) {
-	tx, err := r.db.Begin(ctx)
+	tx, err := transaction.Tx(ctx)
 	if err != nil {
 		return false, err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
 
 	var updatedOrderID domain.OrderID
 	err = tx.QueryRow(ctx,
@@ -270,10 +278,6 @@ func (r *OrderSqlRepository) CancelOrder(
 		}
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return false, err
-	}
-
 	return true, nil
 }
 
@@ -282,7 +286,7 @@ func (r *OrderSqlRepository) UpdateStatus(
 	orderID domain.OrderID,
 	fromStatus domain.OrderStatus,
 	toStatus domain.OrderStatus) (bool, error) {
-	result, err := r.db.Exec(
+	result, err := transaction.DB(ctx, r.db).Exec(
 		ctx, "UPDATE orders SET status = $1 WHERE id = $2 AND status = $3",
 		toStatus,
 		orderID,
@@ -297,7 +301,7 @@ func (r *OrderSqlRepository) UpdateStatus(
 
 func (r *OrderSqlRepository) DeleteOrder(ctx context.Context, orderID domain.OrderID) error {
 
-	_, err := r.db.Exec(ctx, "DELETE FROM orders WHERE id = $1", orderID)
+	_, err := transaction.DB(ctx, r.db).Exec(ctx, "DELETE FROM orders WHERE id = $1", orderID)
 
 	return err
 }

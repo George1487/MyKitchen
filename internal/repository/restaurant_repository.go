@@ -7,6 +7,7 @@ import (
 
 type RestaurantRepository interface {
 	GetByID(ctx context.Context, id domain.RestaurantID) (*domain.Restaurant, error)
+	GetByIDForUpdate(ctx context.Context, id domain.RestaurantID) (*domain.Restaurant, error)
 
 	GetAll(ctx context.Context) ([]domain.Restaurant, error)
 

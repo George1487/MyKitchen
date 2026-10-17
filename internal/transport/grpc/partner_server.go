@@ -9,6 +9,9 @@ import (
 	partnerv1 "MyKitchen/gen/partner/v1"
 	"MyKitchen/internal/domain"
 	"MyKitchen/internal/service"
+	menuservice "MyKitchen/internal/service/menu_item"
+	orderservice "MyKitchen/internal/service/order"
+	restaurantservice "MyKitchen/internal/service/restaurant"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -22,15 +25,15 @@ const partnerAPIKeyMetadata = "x-partner-api-key"
 type PartnerServer struct {
 	partnerv1.UnimplementedPartnerServiceServer
 
-	restaurants *service.RestaurantService
-	menuItems   *service.MenuItemService
-	orders      *service.OrderService
+	restaurants *restaurantservice.RestaurantService
+	menuItems   *menuservice.MenuItemService
+	orders      *orderservice.OrderService
 }
 
 func NewPartnerServer(
-	restaurants *service.RestaurantService,
-	menuItems *service.MenuItemService,
-	orders *service.OrderService,
+	restaurants *restaurantservice.RestaurantService,
+	menuItems *menuservice.MenuItemService,
+	orders *orderservice.OrderService,
 ) *PartnerServer {
 	return &PartnerServer{restaurants: restaurants, menuItems: menuItems, orders: orders}
 }

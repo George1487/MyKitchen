@@ -13,14 +13,17 @@ import (
 )
 
 type OrderHandler struct {
-	orderService *service.OrderService
+	orderService OrderService
 }
 
-func NewOrderHandler(orderService *service.OrderService) *OrderHandler {
+func NewOrderHandler(orderService OrderService) *OrderHandler {
 	return &OrderHandler{orderService: orderService}
 }
 
 func (h *OrderHandler) CreateOrder(c *gin.Context) {
+	if !acceptJSON(c) {
+		return
+	}
 	var request dto.CreateOrderRequest
 	if err := c.ShouldBindJSON(&request); err != nil || !isValidCreateOrderRequest(request) {
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "некорректные данные заказа"})
@@ -88,6 +91,9 @@ func (h *OrderHandler) ChangeRestaurantOrderStatus(c *gin.Context) {
 		return
 	}
 
+	if !acceptJSON(c) {
+		return
+	}
 	var request dto.ChangeOrderStatusRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "некорректные данные статуса заказа"})

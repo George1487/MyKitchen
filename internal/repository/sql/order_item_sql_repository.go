@@ -3,6 +3,7 @@ package sql
 import (
 	"MyKitchen/internal/domain"
 	"MyKitchen/internal/repository"
+	"MyKitchen/internal/transaction"
 	"context"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -22,7 +23,7 @@ func (r *OrderItemSqlRepository) GetByID(ctx context.Context, orderItemID domain
 
 	var orderItem domain.OrderItem
 
-	err := r.db.QueryRow(ctx,
+	err := transaction.DB(ctx, r.db).QueryRow(ctx,
 		"SELECT id, order_id, menu_item_id, price, quantity FROM order_items WHERE id = $1",
 		orderItemID).Scan(
 		&orderItem.ID,
@@ -40,7 +41,7 @@ func (r *OrderItemSqlRepository) GetByID(ctx context.Context, orderItemID domain
 
 func (r *OrderItemSqlRepository) GetByOrderID(ctx context.Context, orderID domain.OrderID) ([]domain.OrderItem, error) {
 
-	rows, err := r.db.Query(ctx,
+	rows, err := transaction.DB(ctx, r.db).Query(ctx,
 		"SELECT id, order_id, menu_item_id, price, quantity FROM order_items WHERE order_id = $1",
 		orderID)
 
@@ -77,7 +78,7 @@ func (r *OrderItemSqlRepository) GetByOrderID(ctx context.Context, orderID domai
 
 func (r *OrderItemSqlRepository) AddOrderItem(ctx context.Context, orderItem domain.OrderItem) error {
 
-	_, err := r.db.Exec(ctx,
+	_, err := transaction.DB(ctx, r.db).Exec(ctx,
 		"INSERT INTO order_items (order_id, menu_item_id, price, quantity) VALUES ($1, $2, $3, $4)",
 		orderItem.OrderID,
 		orderItem.MenuItemID,
@@ -89,7 +90,7 @@ func (r *OrderItemSqlRepository) AddOrderItem(ctx context.Context, orderItem dom
 
 func (r *OrderItemSqlRepository) DeleteOrderItem(ctx context.Context, orderItemID domain.OrderItemID) error {
 
-	_, err := r.db.Exec(ctx,
+	_, err := transaction.DB(ctx, r.db).Exec(ctx,
 		"DELETE FROM order_items WHERE id = $1",
 		orderItemID)
 

@@ -4,8 +4,9 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func setValidEnv(t *testing.T) {
@@ -23,12 +24,11 @@ func setValidEnv(t *testing.T) {
 func TestLoadApp(t *testing.T) {
 	setValidEnv(t)
 	app, err := loadApp()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if app.DB.Host != "localhost" || app.DB.Port != 5432 || app.DB.User != "test_user" || app.PartnerAPIKey != "partner-key" {
-		t.Fatal("application configuration was parsed incorrectly")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "localhost", app.DB.Host)
+	require.Equal(t, uint16(5432), app.DB.Port)
+	require.Equal(t, "test_user", app.DB.User)
+	require.Equal(t, "partner-key", app.PartnerAPIKey)
 }
 
 func TestLoadAppRejectsInvalidEnvironment(t *testing.T) {
@@ -46,9 +46,7 @@ func TestLoadAppRejectsInvalidEnvironment(t *testing.T) {
 			setValidEnv(t)
 			t.Setenv(tc.key, tc.value)
 			_, err := loadApp()
-			if err == nil || !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("loadApp() error = %v, want %s", err, tc.want)
-			}
+			require.ErrorContains(t, err, tc.want)
 		})
 	}
 }
@@ -60,34 +58,29 @@ func TestLoadAppFromDotenv(t *testing.T) {
 	}
 	for _, key := range keys {
 		t.Setenv(key, "")
-		if err := os.Unsetenv(key); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, os.Unsetenv(key))
 	}
 
 	dir := t.TempDir()
 	t.Chdir(dir)
 	contents := "DB_HOST=localhost\nDB_USER=dotenv_user\nDB_PASSWORD=dotenv_secret\nDB_NAME=mykitchen\nPARTNER_API_KEY=dotenv_key\n"
-	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(contents), 0600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".env"), []byte(contents), 0600))
 
 	app, err := loadApp()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if app.DB.User != "dotenv_user" || app.DB.Port != 5432 || app.PartnerAPIKey != "dotenv_key" {
-		t.Fatal("application did not load .env values and defaults")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "dotenv_user", app.DB.User)
+	require.Equal(t, uint16(5432), app.DB.Port)
+	require.Equal(t, "dotenv_key", app.PartnerAPIKey)
 }
 func TestDBDSNEscapesCredentials(t *testing.T) {
 	db := DB{Host: "localhost", Port: 5432, User: "user@name", Password: "p@ss:/word", Name: "mykitchen", SSLMode: "disable"}
 	parsed, err := url.Parse(db.dsn())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, parsed.User)
 	password, ok := parsed.User.Password()
-	if !ok || parsed.User.Username() != db.User || password != db.Password || parsed.Host != "localhost:5432" || parsed.Query().Get("sslmode") != "disable" {
-		t.Fatalf("DSN did not preserve database settings")
-	}
+	require.True(t, ok)
+	require.Equal(t, db.User, parsed.User.Username())
+	require.Equal(t, db.Password, password)
+	require.Equal(t, "localhost:5432", parsed.Host)
+	require.Equal(t, "disable", parsed.Query().Get("sslmode"))
 }

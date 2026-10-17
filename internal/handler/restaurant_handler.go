@@ -13,13 +13,13 @@ import (
 )
 
 type RestaurantHandler struct {
-	restaurantService *service.RestaurantService
-	menuItemService   *service.MenuItemService
+	restaurantService RestaurantService
+	menuItemService   MenuItemService
 }
 
 func NewRestaurantHandler(
-	restaurantService *service.RestaurantService,
-	menuItemService *service.MenuItemService,
+	restaurantService RestaurantService,
+	menuItemService MenuItemService,
 ) *RestaurantHandler {
 	return &RestaurantHandler{
 		restaurantService: restaurantService,
@@ -64,6 +64,9 @@ func (h *RestaurantHandler) GetRestaurantByID(c *gin.Context) {
 }
 
 func (h *RestaurantHandler) RegisterPartnerRestaurant(c *gin.Context) {
+	if !acceptJSON(c) {
+		return
+	}
 	var request dto.RegisterRestaurantRequest
 	if err := c.ShouldBindJSON(&request); err != nil || !isValidRegisterRestaurantRequest(request) {
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "некорректные данные ресторана"})
@@ -112,6 +115,9 @@ func (h *RestaurantHandler) UpdatePartnerAcceptingOrders(c *gin.Context) {
 		return
 	}
 
+	if !acceptJSON(c) {
+		return
+	}
 	var request dto.UpdateAcceptingOrdersRequest
 	if err := c.ShouldBindJSON(&request); err != nil || request.IsAcceptingOrders == nil {
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "некорректные данные для изменения приёма заказов"})
@@ -142,6 +148,9 @@ func (h *RestaurantHandler) CreatePartnerMenuItem(c *gin.Context) {
 		return
 	}
 
+	if !acceptJSON(c) {
+		return
+	}
 	var request dto.CreateMenuItemRequest
 	if err := c.ShouldBindJSON(&request); err != nil || !isValidCreateMenuItemRequest(request) {
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "некорректные данные позиции меню"})
@@ -170,22 +179,34 @@ func (h *RestaurantHandler) CreatePartnerMenuItem(c *gin.Context) {
 }
 
 func (h *RestaurantHandler) UpdatePartnerMenuItem(c *gin.Context) {
-	restaurantID, menuItem, ok := h.partnerMenuItem(c)
+	restaurantID, menuItemID, ok := partnerMenuItemIDs(c)
 	if !ok {
 		return
 	}
 
+	if !acceptJSON(c) {
+		return
+	}
 	var request dto.UpdateMenuItemRequest
-	if err := c.ShouldBindJSON(&request); err != nil || !applyMenuItemUpdate(menuItem, request) {
+	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "некорректные данные позиции меню"})
 		return
 	}
-	if menuItem.RestaurantID != restaurantID {
+	menuItem, err := h.menuItemService.Update(c.Request.Context(), menuItemID, restaurantID, func(item *domain.MenuItem) error {
+		if !applyMenuItemUpdate(item, request) {
+			return errInvalidMenuItemUpdate
+		}
+		return nil
+	})
+	if errors.Is(err, errInvalidMenuItemUpdate) {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "некорректные данные позиции меню"})
+		return
+	}
+	if errors.Is(err, service.ErrMenuItemNotFound) {
 		c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "позиция меню не найдена"})
 		return
 	}
-
-	if err := h.menuItemService.Update(c.Request.Context(), menuItem.ID, *menuItem); err != nil {
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: "не удалось обновить позицию меню"})
 		return
 	}
@@ -194,16 +215,14 @@ func (h *RestaurantHandler) UpdatePartnerMenuItem(c *gin.Context) {
 }
 
 func (h *RestaurantHandler) DeletePartnerMenuItem(c *gin.Context) {
-	restaurantID, menuItem, ok := h.partnerMenuItem(c)
+	restaurantID, menuItemID, ok := partnerMenuItemIDs(c)
 	if !ok {
 		return
 	}
-	if menuItem.RestaurantID != restaurantID {
+	if err := h.menuItemService.Delete(c.Request.Context(), menuItemID, restaurantID); errors.Is(err, service.ErrMenuItemNotFound) {
 		c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "позиция меню не найдена"})
 		return
-	}
-
-	if err := h.menuItemService.Delete(c.Request.Context(), menuItem.ID); err != nil {
+	} else if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: "не удалось удалить позицию меню"})
 		return
 	}
@@ -211,31 +230,21 @@ func (h *RestaurantHandler) DeletePartnerMenuItem(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-func (h *RestaurantHandler) partnerMenuItem(c *gin.Context) (domain.RestaurantID, *domain.MenuItem, bool) {
+func partnerMenuItemIDs(c *gin.Context) (domain.RestaurantID, domain.MenuItemID, bool) {
 	restaurantID, err := parseRestaurantID(c.Param("restaurant_id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "некорректный идентификатор ресторана"})
-		return 0, nil, false
+		return 0, 0, false
 	}
 	menuItemID, err := parseMenuItemID(c.Param("menu_item_id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "некорректный идентификатор позиции меню"})
-		return 0, nil, false
+		return 0, 0, false
 	}
-
-	menuItem, err := h.menuItemService.GetById(c.Request.Context(), menuItemID)
-	if err != nil {
-		if errors.Is(err, service.ErrMenuItemNotFound) {
-			c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "позиция меню не найдена"})
-			return 0, nil, false
-		}
-
-		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: "внутренняя ошибка сервера"})
-		return 0, nil, false
-	}
-
-	return restaurantID, menuItem, true
+	return restaurantID, menuItemID, true
 }
+
+var errInvalidMenuItemUpdate = errors.New("invalid menu item update")
 
 func isValidRegisterRestaurantRequest(request dto.RegisterRestaurantRequest) bool {
 	return strings.TrimSpace(request.Name) != "" &&

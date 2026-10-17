@@ -85,6 +85,21 @@ func (mr *MockMenuItemRepositoryMockRecorder) GetByID(ctx, id any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByID", reflect.TypeOf((*MockMenuItemRepository)(nil).GetByID), ctx, id)
 }
 
+// GetByIDForUpdate mocks base method.
+func (m *MockMenuItemRepository) GetByIDForUpdate(ctx context.Context, id domain.MenuItemID) (*domain.MenuItem, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetByIDForUpdate", ctx, id)
+	ret0, _ := ret[0].(*domain.MenuItem)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetByIDForUpdate indicates an expected call of GetByIDForUpdate.
+func (mr *MockMenuItemRepositoryMockRecorder) GetByIDForUpdate(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByIDForUpdate", reflect.TypeOf((*MockMenuItemRepository)(nil).GetByIDForUpdate), ctx, id)
+}
+
 // GetByRestaurantID mocks base method.
 func (m *MockMenuItemRepository) GetByRestaurantID(ctx context.Context, restaurant domain.RestaurantID) ([]domain.MenuItem, error) {
 	m.ctrl.T.Helper()

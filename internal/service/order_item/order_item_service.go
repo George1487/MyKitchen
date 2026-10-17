@@ -1,4 +1,4 @@
-package service
+package order_item
 
 import (
 	"MyKitchen/internal/domain"

@@ -10,10 +10,10 @@ import (
 )
 
 type MenuItemHandler struct {
-	menuItemService *service.MenuItemService
+	menuItemService MenuItemService
 }
 
-func NewMenuItemHandler(menuItemService *service.MenuItemService) *MenuItemHandler {
+func NewMenuItemHandler(menuItemService MenuItemService) *MenuItemHandler {
 	return &MenuItemHandler{menuItemService: menuItemService}
 }
 

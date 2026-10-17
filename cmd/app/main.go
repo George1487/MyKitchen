@@ -10,7 +10,10 @@ import (
 	"MyKitchen/internal/handler"
 	"MyKitchen/internal/middleware"
 	"MyKitchen/internal/repository/sql"
-	"MyKitchen/internal/service"
+	menuservice "MyKitchen/internal/service/menu_item"
+	orderservice "MyKitchen/internal/service/order"
+	restaurantservice "MyKitchen/internal/service/restaurant"
+	"MyKitchen/internal/transaction"
 	grpcserver "MyKitchen/internal/transport/grpc"
 
 	"github.com/gin-gonic/gin"
@@ -32,16 +35,18 @@ func main() {
 	menuItemRepo := sql.NewMenuItemSqlRepository(db)
 	orderRepo := sql.NewOrderSqlRepository(db)
 	orderItemRepo := sql.NewOrderItemSqlRepository(db)
+	txManager := transaction.NewPgxTxManager(db)
 
-	restaurantService := service.NewRestaurantService(restaurantRepo)
-	menuItemService := service.NewMenuItemService(menuItemRepo, restaurantRepo)
-	orderService := service.NewOrderService(orderRepo, menuItemRepo, orderItemRepo, restaurantRepo)
+	restaurantService := restaurantservice.NewRestaurantService(restaurantRepo, txManager)
+	menuItemService := menuservice.NewMenuItemService(menuItemRepo, restaurantRepo, txManager)
+	orderService := orderservice.NewOrderService(orderRepo, menuItemRepo, orderItemRepo, restaurantRepo, txManager)
 
 	restaurantHandler := handler.NewRestaurantHandler(restaurantService, menuItemService)
 	menuItemHandler := handler.NewMenuItemHandler(menuItemService)
 	orderHandler := handler.NewOrderHandler(orderService)
 
 	router := gin.Default()
+	router.HandleMethodNotAllowed = true
 	router.GET("/restaurants", restaurantHandler.GetAllRestaurants)
 	router.GET("/restaurants/:id", restaurantHandler.GetRestaurantByID)
 	router.GET("/restaurants/:id/menu", menuItemHandler.GetMenuItemsByRestaurantID)

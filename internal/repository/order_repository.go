@@ -7,6 +7,7 @@ import (
 
 type OrderRepository interface {
 	GetByID(ctx context.Context, orderID domain.OrderID) (*domain.Order, error)
+	GetByIDForUpdate(ctx context.Context, orderID domain.OrderID) (*domain.Order, error)
 
 	GetOrdersByRestaurantID(ctx context.Context, restaurantID domain.RestaurantID) ([]domain.Order, error)
 
