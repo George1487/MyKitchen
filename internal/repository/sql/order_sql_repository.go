@@ -97,7 +97,6 @@ func (r *OrderSqlRepository) GetOrdersByRestaurantID(
 }
 
 func (r *OrderSqlRepository) CreateOrder(ctx context.Context, order domain.Order) (domain.OrderID, error) {
-
 	tx, err := transaction.Tx(ctx)
 	if err != nil {
 		return 0, err
@@ -119,43 +118,6 @@ func (r *OrderSqlRepository) CreateOrder(ctx context.Context, order domain.Order
 	sort.Slice(menuItemIDs, func(i, j int) bool {
 		return menuItemIDs[i] < menuItemIDs[j]
 	})
-
-	menuItems := make(map[domain.MenuItemID]domain.MenuItem, len(menuItemIDs))
-	for _, menuItemID := range menuItemIDs {
-		var menuItem domain.MenuItem
-		err := tx.QueryRow(ctx,
-			`SELECT id, price, is_available, available_quantity, restaurant_id
-			 FROM menu_items
-			 WHERE id = $1
-			 FOR UPDATE`, menuItemID).Scan(
-			&menuItem.ID,
-			&menuItem.Price,
-			&menuItem.IsAvailable,
-			&menuItem.AvailableQuantity,
-			&menuItem.RestaurantID,
-		)
-		if err != nil {
-			return 0, fmt.Errorf("get menu item %d: %w", menuItemID, err)
-		}
-		if menuItem.RestaurantID != order.RestaurantID {
-			return 0, fmt.Errorf("menu item %d does not belong to restaurant %d", menuItemID, order.RestaurantID)
-		}
-		if !menuItem.IsAvailable {
-			return 0, fmt.Errorf("menu item %d is unavailable", menuItemID)
-		}
-		if menuItem.AvailableQuantity < requestedQuantities[menuItemID] {
-			return 0, fmt.Errorf("insufficient quantity for menu item %d", menuItemID)
-		}
-
-		menuItems[menuItemID] = menuItem
-	}
-
-	order.TotalPrice = 0
-	for i := range order.OrderItems {
-		menuItem := menuItems[order.OrderItems[i].MenuItemID]
-		order.OrderItems[i].Price = menuItem.Price
-		order.TotalPrice += menuItem.Price * order.OrderItems[i].Quantity
-	}
 
 	for _, menuItemID := range menuItemIDs {
 		_, err := tx.Exec(ctx,
@@ -239,14 +201,24 @@ func (r *OrderSqlRepository) CancelOrder(
 		return false, err
 	}
 
+	if err := restockOrderItems(ctx, tx, orderID); err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
+func restockOrderItems(ctx context.Context, tx pgx.Tx, orderID domain.OrderID) error {
 	rows, err := tx.Query(ctx,
 		`SELECT menu_item_id, SUM(quantity)
 		 FROM order_items
 		 WHERE order_id = $1
-		 GROUP BY menu_item_id`, orderID)
+		 GROUP BY menu_item_id
+		 ORDER BY menu_item_id ASC`, orderID)
 	if err != nil {
-		return false, err
+		return err
 	}
+	defer rows.Close()
 
 	type restockItem struct {
 		menuItemID domain.MenuItemID
@@ -257,16 +229,17 @@ func (r *OrderSqlRepository) CancelOrder(
 		var menuItemID domain.MenuItemID
 		var quantity int64
 		if err := rows.Scan(&menuItemID, &quantity); err != nil {
-			rows.Close()
-			return false, err
+			return err
 		}
 		restockItems = append(restockItems, restockItem{menuItemID: menuItemID, quantity: quantity})
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
-		return false, err
+		return err
 	}
-	rows.Close()
+
+	sort.Slice(restockItems, func(i, j int) bool {
+		return restockItems[i].menuItemID < restockItems[j].menuItemID
+	})
 
 	for _, item := range restockItems {
 		_, err := tx.Exec(ctx,
@@ -274,11 +247,11 @@ func (r *OrderSqlRepository) CancelOrder(
 			 SET available_quantity = available_quantity + $1
 			 WHERE id = $2`, item.quantity, item.menuItemID)
 		if err != nil {
-			return false, err
+			return err
 		}
 	}
 
-	return true, nil
+	return nil
 }
 
 func (r *OrderSqlRepository) UpdateStatus(
@@ -300,8 +273,26 @@ func (r *OrderSqlRepository) UpdateStatus(
 }
 
 func (r *OrderSqlRepository) DeleteOrder(ctx context.Context, orderID domain.OrderID) error {
+	tx, err := transaction.Tx(ctx)
+	if err != nil {
+		return err
+	}
 
-	_, err := transaction.DB(ctx, r.db).Exec(ctx, "DELETE FROM orders WHERE id = $1", orderID)
+	var status domain.OrderStatus
+	err = tx.QueryRow(ctx,
+		`SELECT status FROM orders WHERE id = $1 FOR UPDATE`,
+		orderID,
+	).Scan(&status)
+	if err != nil {
+		return err
+	}
 
+	if status == domain.OrderStatusNew || status == domain.OrderStatusAccepted {
+		if err := restockOrderItems(ctx, tx, orderID); err != nil {
+			return err
+		}
+	}
+
+	_, err = tx.Exec(ctx, "DELETE FROM orders WHERE id = $1", orderID)
 	return err
 }

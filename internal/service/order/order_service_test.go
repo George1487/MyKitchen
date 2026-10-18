@@ -5,9 +5,11 @@ import (
 	service "MyKitchen/internal/service/order"
 	"MyKitchen/tests/mocks"
 	"context"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -212,6 +214,66 @@ func TestChangeStatus(t *testing.T) {
 				passthroughTxManager{},
 			)
 			err := service.ChangeStatus(context.Background(), tt.in.id, tt.in.next)
+			requireErrorText(t, err, tt.out.err)
+		})
+	}
+}
+
+func TestDeleteOrder(t *testing.T) {
+	type in struct {
+		id domain.OrderID
+	}
+	type out struct {
+		err string
+	}
+	deleteOrderTest := []struct {
+		name  string
+		in    in
+		out   out
+		setup func(*mocks.MockOrderRepository)
+	}{
+		{
+			name: "successfully deletes order",
+			in:   in{id: 10},
+			out:  out{},
+			setup: func(orderRepo *mocks.MockOrderRepository) {
+				orderRepo.EXPECT().GetByIDForUpdate(gomock.Any(), domain.OrderID(10)).Return(&domain.Order{ID: 10, Status: domain.OrderStatusNew}, nil)
+				orderRepo.EXPECT().DeleteOrder(gomock.Any(), domain.OrderID(10)).Return(nil)
+			},
+		},
+		{
+			name: "returns not found when order does not exist",
+			in:   in{id: 99},
+			out:  out{err: "заказ не найден"},
+			setup: func(orderRepo *mocks.MockOrderRepository) {
+				orderRepo.EXPECT().GetByIDForUpdate(gomock.Any(), domain.OrderID(99)).Return(nil, pgx.ErrNoRows)
+			},
+		},
+		{
+			name: "propagates repository delete error",
+			in:   in{id: 10},
+			out:  out{err: "не удалось удалить заказ"},
+			setup: func(orderRepo *mocks.MockOrderRepository) {
+				orderRepo.EXPECT().GetByIDForUpdate(gomock.Any(), domain.OrderID(10)).Return(&domain.Order{ID: 10, Status: domain.OrderStatusNew}, nil)
+				orderRepo.EXPECT().DeleteOrder(gomock.Any(), domain.OrderID(10)).Return(errors.New("db error"))
+			},
+		},
+	}
+
+	for _, tt := range deleteOrderTest {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			orderRepo := mocks.NewMockOrderRepository(ctrl)
+			tt.setup(orderRepo)
+
+			service := service.NewOrderService(
+				orderRepo,
+				mocks.NewMockMenuItemRepository(ctrl),
+				mocks.NewMockOrderItemRepository(ctrl),
+				mocks.NewMockRestaurantRepository(ctrl),
+				passthroughTxManager{},
+			)
+			err := service.DeleteOrder(context.Background(), tt.in.id)
 			requireErrorText(t, err, tt.out.err)
 		})
 	}

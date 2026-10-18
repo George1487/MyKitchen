@@ -87,6 +87,39 @@ func TestOrderFlowCancellationRestoresStock(t *testing.T) {
 	assertAvailableQuantity(t, ctx, menuItemRepo, pizzaID, 5)
 }
 
+func TestOrderFlowDeletionRestoresStock(t *testing.T) {
+	ctx := context.Background()
+	pool := openTestPool(t, ctx)
+	restaurantID, pizzaID, _ := createTestRestaurant(t, ctx, pool)
+
+	menuItemRepo := sql.NewMenuItemSqlRepository(pool)
+	orderRepo := sql.NewOrderSqlRepository(pool)
+	orderItemRepo := sql.NewOrderItemSqlRepository(pool)
+	restaurantRepo := sql.NewRestaurantSqlRepository(pool)
+	orderService := orderservice.NewOrderService(orderRepo, menuItemRepo, orderItemRepo, restaurantRepo, transaction.NewPgxTxManager(pool))
+
+	_, err := orderService.AddOrder(ctx, domain.Order{
+		ClientID:     42,
+		RestaurantID: restaurantID,
+		Address:      "Москва, ул. Тверская, 1",
+		Status:       domain.OrderStatusNew,
+		OrderItems:   []domain.OrderItem{{MenuItemID: pizzaID, Quantity: 2}},
+	})
+	require.NoError(t, err)
+	assertAvailableQuantity(t, ctx, menuItemRepo, pizzaID, 3)
+
+	orders, err := orderRepo.GetOrdersByRestaurantID(ctx, restaurantID)
+	require.NoError(t, err)
+	require.Len(t, orders, 1)
+
+	require.NoError(t, orderService.DeleteOrder(ctx, orders[0].ID))
+
+	_, err = orderRepo.GetByID(ctx, orders[0].ID)
+	require.Error(t, err)
+
+	assertAvailableQuantity(t, ctx, menuItemRepo, pizzaID, 5)
+}
+
 func TestTransactionManagerReadCommittedAndRollback(t *testing.T) {
 	ctx := context.Background()
 	pool := openTestPool(t, ctx)

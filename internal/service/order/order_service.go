@@ -281,10 +281,20 @@ func isValidStatusTransition(fromStatus, toStatus domain.OrderStatus) bool {
 }
 
 func (s *OrderService) DeleteOrder(ctx context.Context, id domain.OrderID) error {
+	return s.txManager.Do(ctx, func(txCtx context.Context) error {
+		order, err := s.orderRepo.GetByIDForUpdate(txCtx, id)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("%w: %w", service.ErrOrderNotFound, err)
+			}
 
-	err := s.orderRepo.DeleteOrder(ctx, id)
-	if err != nil {
-		return fmt.Errorf("не удалось добавить заказ: %w", err)
-	}
-	return nil
+			return fmt.Errorf("не удалось найти заказ: %w", err)
+		}
+
+		err = s.orderRepo.DeleteOrder(txCtx, order.ID)
+		if err != nil {
+			return fmt.Errorf("не удалось удалить заказ: %w", err)
+		}
+		return nil
+	})
 }
