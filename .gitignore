@@ -12,6 +12,8 @@ coverage.out
 coverage.txt
 *.coverprofile
 *.prof
+out
+*.out
 
 # Локально собранные Go-бинарники
 *.exe
