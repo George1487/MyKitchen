@@ -8,6 +8,7 @@ import (
 
 	partnerv1 "MyKitchen/gen/partner/v1"
 	"MyKitchen/internal/domain"
+	"MyKitchen/internal/partnerauth"
 	orderservice "MyKitchen/internal/service/order"
 	restaurantservice "MyKitchen/internal/service/restaurant"
 	"MyKitchen/tests/mocks"
@@ -25,6 +26,23 @@ import (
 
 type passthroughTxManager struct{}
 
+type testAuth struct{}
+
+func (testAuth) Authenticate(_ context.Context, key string) (domain.PartnerID, error) {
+	switch key {
+	case "test-key":
+		return 1, nil
+	case "other-key":
+		return 2, nil
+	default:
+		return 0, partnerauth.ErrInvalidKey
+	}
+}
+
+func (testAuth) OwnsRestaurant(_ context.Context, partnerID domain.PartnerID, restaurantID domain.RestaurantID) (bool, error) {
+	return partnerID == 1 && restaurantID == 7, nil
+}
+
 func (passthroughTxManager) Do(ctx context.Context, fn func(context.Context) error) error {
 	return fn(ctx)
 }
@@ -32,7 +50,7 @@ func (passthroughTxManager) Do(ctx context.Context, fn func(context.Context) err
 func testClient(t *testing.T, partner *PartnerServer) partnerv1.PartnerServiceClient {
 	t.Helper()
 	listener := bufconn.Listen(1024 * 1024)
-	server := grpc.NewServer(grpc.UnaryInterceptor(RequirePartnerAPIKey("test-key")))
+	server := grpc.NewServer(grpc.UnaryInterceptor(RequirePartnerAPIKey(testAuth{})))
 	partnerv1.RegisterPartnerServiceServer(server, partner)
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(server.Stop)
@@ -59,10 +77,11 @@ func TestPartnerGRPCAuthenticationAndRegistration(t *testing.T) {
 	restaurants.EXPECT().AddRestaurant(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, restaurant domain.Restaurant) (domain.RestaurantID, error) {
 			assert.Equal(t, "Demo Kitchen", restaurant.Name)
+			assert.Equal(t, domain.PartnerID(1), restaurant.PartnerID)
 			return 17, nil
 		},
 	)
-	client := testClient(t, NewPartnerServer(restaurantservice.NewRestaurantService(restaurants, passthroughTxManager{}), nil, nil))
+	client := testClient(t, NewPartnerServer(restaurantservice.NewRestaurantService(restaurants, passthroughTxManager{}), nil, nil, testAuth{}))
 	request := &partnerv1.RegisterRestaurantRequest{
 		Name: "Demo Kitchen", Phone: "+79990000000", Address: "Moscow",
 		OpeningTime: "09:00", ClosingTime: "23:00",
@@ -91,8 +110,14 @@ func TestPartnerGRPCOrderFlow(t *testing.T) {
 		Return(true, nil)
 
 	orderService := orderservice.NewOrderService(orders, nil, items, nil, passthroughTxManager{})
-	client := testClient(t, NewPartnerServer(nil, nil, orderService))
+	client := testClient(t, NewPartnerServer(nil, nil, orderService, testAuth{}))
 	ctx := authorizedContext(t)
+	_, err := client.ListOrders(metadata.AppendToOutgoingContext(context.Background(), "x-partner-api-key", "other-key"),
+		&partnerv1.ListOrdersRequest{RestaurantId: 7})
+	require.Equal(t, codes.NotFound, status.Code(err))
+	_, err = client.ChangeOrderStatus(metadata.AppendToOutgoingContext(context.Background(), "x-partner-api-key", "other-key"),
+		&partnerv1.ChangeOrderStatusRequest{RestaurantId: 7, OrderId: 42, Status: partnerv1.OrderStatus_ORDER_STATUS_ACCEPTED})
+	require.Equal(t, codes.NotFound, status.Code(err))
 
 	list, err := client.ListOrders(ctx, &partnerv1.ListOrdersRequest{RestaurantId: 7})
 	require.NoError(t, err)

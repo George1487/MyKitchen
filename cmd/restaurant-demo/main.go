@@ -37,7 +37,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	ctx := context.Background()
 	waitForMainService(ctx, healthpb.NewHealthClient(conn))
@@ -62,7 +62,7 @@ func main() {
 
 func loadConfig() (config, error) {
 	grpcAddress := os.Getenv("GRPC_ADDR")
-	partnerAPIKey := os.Getenv("PARTNER_API_KEY")
+	partnerAPIKey := os.Getenv("DEMO_PARTNER_API_KEY")
 	decision := os.Getenv("RESTAURANT_DECISION")
 	if decision == "" {
 		decision = "accept"
@@ -80,7 +80,7 @@ func loadConfig() (config, error) {
 		}
 	}
 	if grpcAddress == "" || partnerAPIKey == "" {
-		return config{}, fmt.Errorf("GRPC_ADDR and PARTNER_API_KEY are required")
+		return config{}, fmt.Errorf("GRPC_ADDR and DEMO_PARTNER_API_KEY are required")
 	}
 	return config{grpcAddress: grpcAddress, partnerAPIKey: partnerAPIKey, decision: decision, pollInterval: pollInterval}, nil
 }

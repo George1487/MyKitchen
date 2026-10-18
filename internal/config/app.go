@@ -17,10 +17,10 @@ import (
 
 // App holds the settings and live database connection for the main service.
 type App struct {
-	DB             DB     `envPrefix:"DB_"`
-	PartnerAPIKey  string `env:"PARTNER_API_KEY,required,notEmpty"`
-	HTTPListenAddr string `env:"HTTP_LISTEN_ADDR" envDefault:":8080"`
-	GRPCListenAddr string `env:"GRPC_LISTEN_ADDR" envDefault:":9090"`
+	DB                DB     `envPrefix:"DB_"`
+	DemoPartnerAPIKey string `env:"DEMO_PARTNER_API_KEY,required,notEmpty"`
+	HTTPListenAddr    string `env:"HTTP_LISTEN_ADDR" envDefault:":8080"`
+	GRPCListenAddr    string `env:"GRPC_LISTEN_ADDR" envDefault:":9090"`
 }
 
 // NewApp loads configuration, connects to PostgreSQL and applies migrations.
@@ -55,8 +55,8 @@ func loadApp() (*App, error) {
 	if err := app.DB.validate(); err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(app.PartnerAPIKey) == "" {
-		return nil, fmt.Errorf("PARTNER_API_KEY must not be empty")
+	if strings.TrimSpace(app.DemoPartnerAPIKey) == "" {
+		return nil, fmt.Errorf("DEMO_PARTNER_API_KEY must not be empty")
 	}
 	for _, address := range []struct {
 		name, value string

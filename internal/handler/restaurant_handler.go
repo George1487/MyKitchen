@@ -3,6 +3,7 @@ package handler
 import (
 	"MyKitchen/internal/domain"
 	"MyKitchen/internal/handler/dto"
+	"MyKitchen/internal/partnerauth"
 	"MyKitchen/internal/service"
 	"errors"
 	"net/http"
@@ -74,6 +75,7 @@ func (h *RestaurantHandler) RegisterPartnerRestaurant(c *gin.Context) {
 	}
 
 	restaurant, err := h.restaurantService.RegisterRestaurant(c.Request.Context(), domain.Restaurant{
+		PartnerID:   partnerauth.PartnerID(c.Request.Context()),
 		Name:        strings.TrimSpace(request.Name),
 		Phone:       strings.TrimSpace(request.Phone),
 		Address:     strings.TrimSpace(request.Address),

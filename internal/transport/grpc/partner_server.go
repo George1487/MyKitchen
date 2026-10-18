@@ -2,12 +2,12 @@ package grpcserver
 
 import (
 	"context"
-	"crypto/subtle"
 	"errors"
 	"strings"
 
 	partnerv1 "MyKitchen/gen/partner/v1"
 	"MyKitchen/internal/domain"
+	"MyKitchen/internal/partnerauth"
 	"MyKitchen/internal/service"
 	menuservice "MyKitchen/internal/service/menu_item"
 	orderservice "MyKitchen/internal/service/order"
@@ -28,24 +28,44 @@ type PartnerServer struct {
 	restaurants *restaurantservice.RestaurantService
 	menuItems   *menuservice.MenuItemService
 	orders      *orderservice.OrderService
+	auth        partnerauth.Authenticator
 }
 
 func NewPartnerServer(
 	restaurants *restaurantservice.RestaurantService,
 	menuItems *menuservice.MenuItemService,
 	orders *orderservice.OrderService,
+	auth partnerauth.Authenticator,
 ) *PartnerServer {
-	return &PartnerServer{restaurants: restaurants, menuItems: menuItems, orders: orders}
+	return &PartnerServer{restaurants: restaurants, menuItems: menuItems, orders: orders, auth: auth}
 }
 
-func RequirePartnerAPIKey(expected string) grpc.UnaryServerInterceptor {
+func RequirePartnerAPIKey(auth partnerauth.Authenticator) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		values := metadata.ValueFromIncomingContext(ctx, partnerAPIKeyMetadata)
-		if expected == "" || len(values) != 1 || subtle.ConstantTimeCompare([]byte(values[0]), []byte(expected)) != 1 {
+		if len(values) != 1 {
 			return nil, status.Error(codes.Unauthenticated, "invalid partner API key")
 		}
-		return handler(ctx, req)
+		id, err := auth.Authenticate(ctx, values[0])
+		if errors.Is(err, partnerauth.ErrInvalidKey) {
+			return nil, status.Error(codes.Unauthenticated, "invalid partner API key")
+		}
+		if err != nil {
+			return nil, status.Error(codes.Internal, "partner authentication failed")
+		}
+		return handler(partnerauth.WithPartnerID(ctx, id), req)
 	}
+}
+
+func (s *PartnerServer) checkOwned(ctx context.Context, restaurantID int64) error {
+	owned, err := s.auth.OwnsRestaurant(ctx, partnerauth.PartnerID(ctx), domain.RestaurantID(restaurantID))
+	if err != nil {
+		return status.Error(codes.Internal, "failed to check restaurant ownership")
+	}
+	if !owned {
+		return status.Error(codes.NotFound, "restaurant not found")
+	}
+	return nil
 }
 
 func (s *PartnerServer) RegisterRestaurant(ctx context.Context, req *partnerv1.RegisterRestaurantRequest) (*partnerv1.RegisterRestaurantResponse, error) {
@@ -54,7 +74,8 @@ func (s *PartnerServer) RegisterRestaurant(ctx context.Context, req *partnerv1.R
 		return nil, status.Error(codes.InvalidArgument, "restaurant details are required")
 	}
 	restaurant, err := s.restaurants.RegisterRestaurant(ctx, domain.Restaurant{
-		Name: strings.TrimSpace(req.GetName()), Phone: strings.TrimSpace(req.GetPhone()),
+		PartnerID: partnerauth.PartnerID(ctx),
+		Name:      strings.TrimSpace(req.GetName()), Phone: strings.TrimSpace(req.GetPhone()),
 		Address: strings.TrimSpace(req.GetAddress()), OpeningTime: req.GetOpeningTime(),
 		ClosingTime: req.GetClosingTime(),
 	})
@@ -68,6 +89,9 @@ func (s *PartnerServer) CreateMenuItem(ctx context.Context, req *partnerv1.Creat
 	if req == nil || req.GetRestaurantId() <= 0 || strings.TrimSpace(req.GetName()) == "" ||
 		strings.TrimSpace(req.GetDescription()) == "" || req.GetPrice() < 0 || req.GetAvailableQuantity() < 0 {
 		return nil, status.Error(codes.InvalidArgument, "invalid menu item")
+	}
+	if err := s.checkOwned(ctx, req.GetRestaurantId()); err != nil {
+		return nil, err
 	}
 	item, err := s.menuItems.Add(ctx, domain.MenuItem{
 		RestaurantID: domain.RestaurantID(req.GetRestaurantId()),
@@ -88,6 +112,9 @@ func (s *PartnerServer) SetAcceptingOrders(ctx context.Context, req *partnerv1.S
 	if req == nil || req.GetRestaurantId() <= 0 {
 		return nil, status.Error(codes.InvalidArgument, "invalid restaurant ID")
 	}
+	if err := s.checkOwned(ctx, req.GetRestaurantId()); err != nil {
+		return nil, err
+	}
 	updated, err := s.restaurants.UpdateAcceptingOrders(ctx, domain.RestaurantID(req.GetRestaurantId()), req.GetIsAcceptingOrders())
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to update restaurant")
@@ -101,6 +128,9 @@ func (s *PartnerServer) SetAcceptingOrders(ctx context.Context, req *partnerv1.S
 func (s *PartnerServer) ListOrders(ctx context.Context, req *partnerv1.ListOrdersRequest) (*partnerv1.ListOrdersResponse, error) {
 	if req == nil || req.GetRestaurantId() <= 0 {
 		return nil, status.Error(codes.InvalidArgument, "invalid restaurant ID")
+	}
+	if err := s.checkOwned(ctx, req.GetRestaurantId()); err != nil {
+		return nil, err
 	}
 	orders, err := s.orders.GetOrdersByRestaurantID(ctx, domain.RestaurantID(req.GetRestaurantId()))
 	if err != nil {
@@ -124,6 +154,9 @@ func (s *PartnerServer) ChangeOrderStatus(ctx context.Context, req *partnerv1.Ch
 	newStatus, ok := fromProtoStatus(req.GetStatus())
 	if !ok || newStatus == domain.OrderStatusNew {
 		return nil, status.Error(codes.InvalidArgument, "invalid target order status")
+	}
+	if err := s.checkOwned(ctx, req.GetRestaurantId()); err != nil {
+		return nil, err
 	}
 	err := s.orders.ChangeStatusForRestaurant(ctx, domain.RestaurantID(req.GetRestaurantId()), domain.OrderID(req.GetOrderId()), newStatus)
 	if errors.Is(err, service.ErrOrderNotFound) {

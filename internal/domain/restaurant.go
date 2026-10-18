@@ -3,7 +3,8 @@ package domain
 type RestaurantID int64
 
 type Restaurant struct {
-	ID RestaurantID
+	ID        RestaurantID
+	PartnerID PartnerID
 
 	Name string
 

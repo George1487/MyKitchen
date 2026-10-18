@@ -14,7 +14,7 @@ func setValidEnv(t *testing.T) {
 	for name, value := range map[string]string{
 		"DB_HOST": "localhost", "DB_PORT": "5432", "DB_USER": "test_user",
 		"DB_PASSWORD": "secret", "DB_NAME": "test_db", "DB_SSLMODE": "disable",
-		"PARTNER_API_KEY": "partner-key", "HTTP_LISTEN_ADDR": ":8080",
+		"DEMO_PARTNER_API_KEY": "partner-key", "HTTP_LISTEN_ADDR": ":8080",
 		"GRPC_LISTEN_ADDR": ":9090",
 	} {
 		t.Setenv(name, value)
@@ -28,7 +28,7 @@ func TestLoadApp(t *testing.T) {
 	require.Equal(t, "localhost", app.DB.Host)
 	require.Equal(t, uint16(5432), app.DB.Port)
 	require.Equal(t, "test_user", app.DB.User)
-	require.Equal(t, "partner-key", app.PartnerAPIKey)
+	require.Equal(t, "partner-key", app.DemoPartnerAPIKey)
 }
 
 func TestLoadAppRejectsInvalidEnvironment(t *testing.T) {
@@ -39,7 +39,7 @@ func TestLoadAppRejectsInvalidEnvironment(t *testing.T) {
 		{"bad port", "DB_PORT", "70000", "Port"},
 		{"zero port", "DB_PORT", "0", "DB_PORT"},
 		{"blank password", "DB_PASSWORD", "   ", "DB_PASSWORD"},
-		{"blank API key", "PARTNER_API_KEY", "   ", "PARTNER_API_KEY"},
+		{"blank API key", "DEMO_PARTNER_API_KEY", "   ", "DEMO_PARTNER_API_KEY"},
 		{"bad gRPC address", "GRPC_LISTEN_ADDR", ":invalid", "GRPC_LISTEN_ADDR"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -54,7 +54,7 @@ func TestLoadAppRejectsInvalidEnvironment(t *testing.T) {
 func TestLoadAppFromDotenv(t *testing.T) {
 	keys := []string{
 		"DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD", "DB_NAME", "DB_SSLMODE",
-		"PARTNER_API_KEY", "HTTP_LISTEN_ADDR", "GRPC_LISTEN_ADDR",
+		"DEMO_PARTNER_API_KEY", "HTTP_LISTEN_ADDR", "GRPC_LISTEN_ADDR",
 	}
 	for _, key := range keys {
 		t.Setenv(key, "")
@@ -63,14 +63,14 @@ func TestLoadAppFromDotenv(t *testing.T) {
 
 	dir := t.TempDir()
 	t.Chdir(dir)
-	contents := "DB_HOST=localhost\nDB_USER=dotenv_user\nDB_PASSWORD=dotenv_secret\nDB_NAME=mykitchen\nPARTNER_API_KEY=dotenv_key\n"
+	contents := "DB_HOST=localhost\nDB_USER=dotenv_user\nDB_PASSWORD=dotenv_secret\nDB_NAME=mykitchen\nDEMO_PARTNER_API_KEY=dotenv_key\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".env"), []byte(contents), 0600))
 
 	app, err := loadApp()
 	require.NoError(t, err)
 	require.Equal(t, "dotenv_user", app.DB.User)
 	require.Equal(t, uint16(5432), app.DB.Port)
-	require.Equal(t, "dotenv_key", app.PartnerAPIKey)
+	require.Equal(t, "dotenv_key", app.DemoPartnerAPIKey)
 }
 func TestDBDSNEscapesCredentials(t *testing.T) {
 	db := DB{Host: "localhost", Port: 5432, User: "user@name", Password: "p@ss:/word", Name: "mykitchen", SSLMode: "disable"}

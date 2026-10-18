@@ -33,7 +33,7 @@ func (r *RestaurantSqlRepository) GetByIDForUpdate(ctx context.Context, restaura
 func (r *RestaurantSqlRepository) getByID(ctx context.Context, restaurantID domain.RestaurantID, forUpdate bool) (*domain.Restaurant, error) {
 
 	var restaurant domain.Restaurant
-	query := `SELECT id, name, phone, address, opening_time, closing_time, is_accepting_orders
+	query := `SELECT id, name, phone, address, opening_time, closing_time, is_accepting_orders, COALESCE(partner_id, 0)
 		 FROM restaurants
 		 WHERE id = $1`
 	if forUpdate {
@@ -46,7 +46,8 @@ func (r *RestaurantSqlRepository) getByID(ctx context.Context, restaurantID doma
 		&restaurant.Address,
 		&restaurant.OpeningTime,
 		&restaurant.ClosingTime,
-		&restaurant.IsAcceptingOrders)
+		&restaurant.IsAcceptingOrders,
+		&restaurant.PartnerID)
 
 	if err != nil {
 		return nil, err
@@ -64,14 +65,15 @@ func (r *RestaurantSqlRepository) AddRestaurant(ctx context.Context, restaurant 
 
 	err = tx.QueryRow(ctx,
 		`INSERT INTO restaurants
-            (name, phone, address, opening_time, closing_time)
-         VALUES ($1, $2, $3, $4, $5)
+			(name, phone, address, opening_time, closing_time, partner_id)
+		 VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING id`,
 		restaurant.Name,
 		restaurant.Phone,
 		restaurant.Address,
 		restaurant.OpeningTime,
 		restaurant.ClosingTime,
+		restaurant.PartnerID,
 	).Scan(&restaurant.ID)
 
 	if err != nil {
@@ -130,7 +132,7 @@ func (r *RestaurantSqlRepository) GetAll(ctx context.Context) ([]domain.Restaura
 	var restaurants []domain.Restaurant
 
 	rows, err := transaction.DB(ctx, r.db).Query(ctx,
-		`SELECT id, name, phone, address, opening_time, closing_time, is_accepting_orders
+		`SELECT id, name, phone, address, opening_time, closing_time, is_accepting_orders, COALESCE(partner_id, 0)
 		 FROM restaurants`)
 	if err != nil {
 		return nil, err
@@ -146,7 +148,8 @@ func (r *RestaurantSqlRepository) GetAll(ctx context.Context) ([]domain.Restaura
 			&restaurant.Address,
 			&restaurant.OpeningTime,
 			&restaurant.ClosingTime,
-			&restaurant.IsAcceptingOrders)
+			&restaurant.IsAcceptingOrders,
+			&restaurant.PartnerID)
 
 		if err != nil {
 			return nil, err

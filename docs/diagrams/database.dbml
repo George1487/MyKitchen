@@ -1,11 +1,27 @@
  Table restaurants {
   id integer [pk, increment]
+  partner_id bigint
   name text [not null]
   phone text [not null]
   address text [not null]
   opening_time time [not null]
   closing_time time [not null]
   is_accepting_orders boolean [not null, default: true]
+}
+
+Table partners {
+  id bigint [pk, increment]
+  slug text [not null, unique]
+  name text [not null]
+  is_active boolean [not null, default: true]
+}
+
+Table partner_keys {
+  id bigint [pk, increment]
+  partner_id bigint [not null]
+  key_hash bytea [not null, unique]
+  created_at timestamptz [not null, default: `now()`]
+  revoked_at timestamptz
 }
 
 Table orders {
@@ -40,3 +56,5 @@ Ref: restaurants.id < orders.restaurant_id
 Ref: restaurants.id < menu_items.restaurant_id [delete: cascade]
 Ref: orders.id < order_items.order_id [delete: cascade]
 Ref: menu_items.id < order_items.menu_item_id
+Ref: partners.id < restaurants.partner_id
+Ref: partners.id < partner_keys.partner_id [delete: cascade]

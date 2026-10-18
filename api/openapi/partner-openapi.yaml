@@ -5,7 +5,8 @@ info:
   description: |
     API MVP для сервиса ресторана-партнёра: регистрация ресторана,
     управление меню и обработка заказов.
-    Все маршруты требуют заголовок `X-Partner-API-Key`.
+    Все маршруты требуют заголовок `X-Partner-API-Key`. Ключ заранее выдаётся
+    допущенному партнёру; доступ к конкретному ресторану ограничен владельцем ключа.
 servers:
   - url: http://localhost:8080
     description: Локальный запуск через Docker Compose
@@ -362,7 +363,7 @@ components:
       type: apiKey
       in: header
       name: X-Partner-API-Key
-      description: Общий ключ партнёрского API из переменной окружения PARTNER_API_KEY.
+      description: Индивидуальный ключ заранее зарегистрированного партнёра.
 
   parameters:
     RestaurantId:
@@ -395,7 +396,7 @@ components:
 
   responses:
     Unauthorized:
-      description: API-ключ отсутствует или не совпадает с PARTNER_API_KEY
+      description: API-ключ отсутствует, отозван или не зарегистрирован
       content:
         application/json:
           schema:
@@ -411,7 +412,7 @@ components:
           example:
             error: некорректный идентификатор ресторана
     RestaurantNotFound:
-      description: Ресторан не найден
+      description: Ресторан не найден или не принадлежит этому партнёру
       content:
         application/json:
           schema:

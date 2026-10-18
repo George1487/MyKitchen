@@ -4,6 +4,7 @@ package integration_test
 
 import (
 	"MyKitchen/internal/domain"
+	"MyKitchen/internal/partnerauth"
 	"MyKitchen/internal/repository/sql"
 	orderservice "MyKitchen/internal/service/order"
 	"MyKitchen/internal/transaction"
@@ -89,6 +90,7 @@ func TestOrderFlowCancellationRestoresStock(t *testing.T) {
 func TestTransactionManagerReadCommittedAndRollback(t *testing.T) {
 	ctx := context.Background()
 	pool := openTestPool(t, ctx)
+	partnerID := provisionTestPartner(t, ctx, pool)
 	manager := transaction.NewPgxTxManager(pool)
 	restaurants := sql.NewRestaurantSqlRepository(pool)
 	wantErr := errors.New("rollback requested")
@@ -98,7 +100,8 @@ func TestTransactionManagerReadCommittedAndRollback(t *testing.T) {
 		assert.NoError(t, transaction.DB(txCtx, pool).QueryRow(txCtx, "SHOW transaction_isolation").Scan(&isolation))
 		assert.Equal(t, "read committed", isolation)
 		_, insertErr := restaurants.AddRestaurant(txCtx, domain.Restaurant{
-			Name: "Rollback kitchen", Phone: "+79990000000", Address: "Moscow",
+			PartnerID: partnerID,
+			Name:      "Rollback kitchen", Phone: "+79990000000", Address: "Moscow",
 			OpeningTime: "09:00", ClosingTime: "23:00",
 		})
 		assert.NoError(t, insertErr)
@@ -141,6 +144,47 @@ func TestConcurrentOrdersDoNotOversell(t *testing.T) {
 	require.Len(t, created, 1)
 }
 
+func TestPartnerKeysAreScopedAndRotatable(t *testing.T) {
+	ctx := context.Background()
+	pool := openTestPool(t, ctx)
+	repo := sql.NewPartnerSqlRepository(pool)
+	partnerA, err := repo.ProvisionPartner(ctx, "a", "Partner A", "key-a")
+	require.NoError(t, err)
+	partnerB, err := repo.ProvisionPartner(ctx, "b", "Partner B", "key-b")
+	require.NoError(t, err)
+	restaurants := sql.NewRestaurantSqlRepository(pool)
+	var restaurantID domain.RestaurantID
+	err = transaction.NewPgxTxManager(pool).Do(ctx, func(txCtx context.Context) error {
+		var addErr error
+		restaurantID, addErr = restaurants.AddRestaurant(txCtx, domain.Restaurant{
+			PartnerID: partnerA, Name: "A", Phone: "1", Address: "Moscow",
+			OpeningTime: "09:00", ClosingTime: "23:00",
+		})
+		return addErr
+	})
+	require.NoError(t, err)
+	auth := partnerauth.NewService(repo)
+	for _, tc := range []struct {
+		key   string
+		owner domain.PartnerID
+		owned bool
+	}{{"key-a", partnerA, true}, {"key-b", partnerB, false}} {
+		id, authErr := auth.Authenticate(ctx, tc.key)
+		require.NoError(t, authErr)
+		require.Equal(t, tc.owner, id)
+		owned, ownerErr := auth.OwnsRestaurant(ctx, id, restaurantID)
+		require.NoError(t, ownerErr)
+		require.Equal(t, tc.owned, owned)
+	}
+	_, err = repo.ProvisionPartner(ctx, "a", "Partner A", "new-key-a")
+	require.NoError(t, err)
+	_, err = auth.Authenticate(ctx, "key-a")
+	require.ErrorIs(t, err, partnerauth.ErrInvalidKey)
+	id, err := auth.Authenticate(ctx, "new-key-a")
+	require.NoError(t, err)
+	require.Equal(t, partnerA, id)
+}
+
 func openTestPool(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	t.Helper()
 
@@ -179,11 +223,13 @@ func createTestRestaurant(t *testing.T, ctx context.Context, pool *pgxpool.Pool)
 	t.Helper()
 
 	restaurantRepo := sql.NewRestaurantSqlRepository(pool)
+	partnerID := provisionTestPartner(t, ctx, pool)
 	menuItemRepo := sql.NewMenuItemSqlRepository(pool)
 	var restaurantID domain.RestaurantID
 	err := transaction.NewPgxTxManager(pool).Do(ctx, func(txCtx context.Context) error {
 		var err error
 		restaurantID, err = restaurantRepo.AddRestaurant(txCtx, domain.Restaurant{
+			PartnerID:   partnerID,
 			Name:        "Тестовая кухня",
 			Phone:       "+79990000000",
 			Address:     "Москва",
@@ -237,6 +283,13 @@ func createTestRestaurant(t *testing.T, ctx context.Context, pool *pgxpool.Pool)
 	require.NotZero(t, drinkID)
 
 	return restaurantID, pizzaID, drinkID
+}
+
+func provisionTestPartner(t *testing.T, ctx context.Context, pool *pgxpool.Pool) domain.PartnerID {
+	t.Helper()
+	id, err := sql.NewPartnerSqlRepository(pool).ProvisionPartner(ctx, "test", "Test partner", "test-partner-key")
+	require.NoError(t, err)
+	return id
 }
 
 func assertAvailableQuantity(
